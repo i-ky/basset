@@ -8,7 +8,7 @@
 
 using std::cerr;
 
-int main(int argc, char *argv[], char *envp[]) {
+int main(int argc, char *argv[]) {
   argv++;
 
   if (auto pid = fork()) {
@@ -46,7 +46,7 @@ int main(int argc, char *argv[], char *envp[]) {
     return -1;
   }
 
-  execve(*argv, argv, envp);
+  execvp(*argv, argv);
   // on success, execve() does not return
   perror("cannot execve()");
   return -1;
