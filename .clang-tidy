@@ -1,2 +1,8 @@
 Checks: |-
-  *
+  *,
+  -*-member-init,
+  -*-vararg,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-pro-type-union-access,
+  -hicpp-signed-bitwise,
+  -modernize-use-trailing-return-type
