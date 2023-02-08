@@ -13,14 +13,17 @@
 #undef PTRACE_CONT
 #undef PTRACE_GETEVENTMSG
 #undef PTRACE_GET_SYSCALL_INFO
+#undef PTRACE_PEEKDATA
 #undef PTRACE_SETOPTIONS
 #undef PTRACE_TRACEME
 
 #include <cassert>
 #include <csignal>
 #include <iostream>
+#include <string>
 
 using std::cerr;
+using std::string;
 
 int main(int argc, char *argv[]) {
   argv++;
@@ -116,6 +119,22 @@ int main(int argc, char *argv[]) {
 
                 cerr << '\n';
                 assert(ret_data == data.seccomp.ret_data);
+
+                string path;
+                auto *addr = reinterpret_cast<char *>(data.seccomp.args[0]);
+                do {
+                  errno = 0;
+                  const auto peek = ptrace(PTRACE_PEEKDATA, pid, addr, 0);
+
+                  if (peek == -1 && errno != 0) {
+                    perror("cannot ptrace(PTRACE_PEEKDATA)");
+                    return -1;
+                  }
+                  path.append(reinterpret_cast<const char *>(&peek), sizeof(peek));
+                  addr += sizeof(peek);
+                } while (path.find('\0') == string::npos);
+
+                cerr << path << '\n';
                 break;
               }
               case PTRACE_SYSCALL_INFO_NONE:
