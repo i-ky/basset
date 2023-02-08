@@ -46,6 +46,7 @@ int main(int argc, char *argv[]) {
 
     if (ptrace(PTRACE_SYSCALL, pid, nullptr, nullptr) == -1) {
       perror("cannot ptrace(PTRACE_CONT)");
+      return -1;
     }
 
     while (auto pid = wait(&wstatus)) {
@@ -86,6 +87,7 @@ int main(int argc, char *argv[]) {
 
         if (ptrace(PTRACE_SYSCALL, pid, nullptr, nullptr) == -1) {
           perror("cannot ptrace(PTRACE_SYSCALL)");
+          return -1;
         }
       } else if (WIFCONTINUED(wstatus)) {
         cerr << pid << " continued\n";
