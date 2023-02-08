@@ -89,6 +89,9 @@ int main(int argc, char *argv[]) {
         }
       } else if (WIFCONTINUED(wstatus)) {
         cerr << pid << " continued\n";
+      } else {
+        cerr << "unexpected wait status: " << wstatus << '\n';
+        return -1;
       }
     }
 
