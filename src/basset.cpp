@@ -11,6 +11,7 @@
 #undef PTRACE_SYSCALL
 #undef PTRACE_TRACEME
 
+#include <csignal>
 #include <iostream>
 
 using std::cerr;
@@ -26,6 +27,27 @@ int main(int argc, char *argv[]) {
 
     int wstatus;
 
+    if (wait(&wstatus) == -1) {
+      perror("cannot wait()");
+      return -1;
+    }
+
+    if (!WIFSTOPPED(wstatus) || WSTOPSIG(wstatus) != SIGSTOP) {
+      cerr << "unexpected state of child\n";
+      return -1;
+    }
+
+    if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
+               PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
+                   PTRACE_O_TRACEEXEC | PTRACE_O_TRACESYSGOOD) == -1) {
+      perror("cannot ptrace(PTRACE_SETOPTIONS)");
+      return -1;
+    }
+
+    if (ptrace(PTRACE_SYSCALL, pid, nullptr, nullptr) == -1) {
+      perror("cannot ptrace(PTRACE_CONT)");
+    }
+
     while (auto pid = wait(&wstatus)) {
       if (pid == -1) {
         perror("cannot wait()");
@@ -36,13 +58,6 @@ int main(int argc, char *argv[]) {
         cerr << pid << " exited/terminated by signal\n";
       } else if (WIFSTOPPED(wstatus)) {
         cerr << pid << " stopped\n";
-
-        if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
-                   PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK |
-                       PTRACE_O_TRACEVFORK | PTRACE_O_TRACEEXEC |
-                       PTRACE_O_TRACESYSGOOD) == -1) {
-          perror("cannot ptrace(PTRACE_SETOPTIONS)");
-        }
 
         ptrace_syscall_info data;
 
@@ -82,6 +97,12 @@ int main(int argc, char *argv[]) {
 
   if (ptrace(PTRACE_TRACEME, 0, nullptr, nullptr) == -1) {
     perror("cannot ptrace(PTRACE_TRACEME)");
+    return -1;
+  }
+
+  // allow parent to ptrace(PTRACE_SETOPTIONS)
+  if (raise(SIGSTOP) != 0) {
+    perror("cannot raise(SIGSTOP)");
     return -1;
   }
 
