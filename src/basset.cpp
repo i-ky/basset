@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
 
     if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
                PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
-                   PTRACE_O_TRACEEXEC) == -1) {
+                   PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL) == -1) {
       perror("cannot ptrace(PTRACE_SETOPTIONS)");
       return -1;
     }
