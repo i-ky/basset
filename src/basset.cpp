@@ -14,14 +14,55 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <ostream>
 #include <string>
 
 using std::cerr;
+using std::cout;
 using std::ifstream;
+using std::ostream;
 using std::string;
 using std::to_string;
+using std::literals::string_literals::operator""s;
 
 int main(int argc, char *argv[]) {
+  const string progname{*argv++};
+
+  auto usage = [progname](ostream &stream) {
+    stream << progname << " [options] -- ...\n";
+  };
+
+  bool verbose{false};
+
+  while (*argv != nullptr) {
+    if (*argv == "--"s) {
+      break;
+    }
+
+    if (*argv == "--help"s) {
+      usage(cout);
+      return 0;
+    }
+
+    if (*argv == "--verbose"s) {
+      verbose = true;
+    } else if (*argv == "--no-verbose"s) {
+      verbose = false;
+    } else {
+      cerr << "unsupported option: " << *argv << '\n';
+      usage(cerr);
+      return -1;
+    }
+
+    argv++;
+  }
+
+  if (*argv == nullptr) {
+    cerr << "unexpected end of arguments\n";
+    usage(cerr);
+    return -1;
+  }
+
   argv++;
 
   if (auto pid = fork()) {
@@ -61,9 +102,9 @@ int main(int argc, char *argv[]) {
       }
 
       if (WIFEXITED(wstatus) || WIFSIGNALED(wstatus)) {
-        cerr << pid << " exited/terminated by signal\n";
+        verbose &&cerr << pid << " exited/terminated by signal\n";
       } else if (WIFSTOPPED(wstatus)) {
-        cerr << pid << " stopped\n";
+        verbose &&cerr << pid << " stopped\n";
 
         if (WSTOPSIG(wstatus) == SIGTRAP) {
           switch (wstatus >> 16) {
@@ -98,6 +139,7 @@ int main(int argc, char *argv[]) {
 
             if (!cmdline.eof()) {
               cerr << "failed to read /proc/[pid]/cmdline\n";
+              return -1;
             }
 
             break;
@@ -111,7 +153,7 @@ int main(int argc, char *argv[]) {
             return -1;
           }
         } else {
-          cerr << "got signal: " << WSTOPSIG(wstatus) << '\n';
+          verbose &&cerr << "got signal: " << WSTOPSIG(wstatus) << '\n';
         }
 
         if (ptrace(PTRACE_CONT, pid, nullptr, nullptr) == -1) {
@@ -119,7 +161,7 @@ int main(int argc, char *argv[]) {
           return -1;
         }
       } else if (WIFCONTINUED(wstatus)) {
-        cerr << pid << " continued\n";
+        verbose &&cerr << pid << " continued\n";
       } else {
         cerr << "unexpected wait status: " << wstatus << '\n';
         return -1;
