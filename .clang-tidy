@@ -4,5 +4,6 @@ Checks: |-
   -*-vararg,
   -cppcoreguidelines-init-variables,
   -cppcoreguidelines-pro-type-union-access,
+  -fuchsia-default-arguments-calls,
   -hicpp-signed-bitwise,
   -modernize-use-trailing-return-type
