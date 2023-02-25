@@ -17,15 +17,86 @@
 #include <iostream>
 #include <ostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 using std::cerr;
 using std::cout;
+using std::forward;
 using std::ifstream;
 using std::ofstream;
 using std::ostream;
 using std::string;
 using std::to_string;
+using std::vector;
 using std::literals::string_literals::operator""s;
+
+class CompilationDatabase : ofstream {
+public:
+  template <typename... Args> explicit CompilationDatabase(Args &&...);
+  CompilationDatabase(const CompilationDatabase &) = delete;
+  CompilationDatabase(CompilationDatabase &&) = delete;
+  CompilationDatabase &operator=(const CompilationDatabase &) = delete;
+  CompilationDatabase &operator=(CompilationDatabase &&) = delete;
+  ~CompilationDatabase() override;
+  using ofstream::operator!;
+  void add(const string &directory, const vector<string> &command);
+
+private:
+  bool first{true};
+};
+
+template <typename... Args>
+CompilationDatabase::CompilationDatabase(Args &&... args)
+    : ofstream(forward<Args>(args)...) {
+  *this << "[";
+}
+
+void CompilationDatabase::add(const string &directory,
+                              const vector<string> &command) {
+  if (first) {
+    first = false;
+  } else {
+    *this << ',';
+  }
+
+  vector<string> files;
+
+  files.emplace_back(command.back()); // FIXME
+
+  for (const auto &file : files) {
+    *this << "\n"
+             "  {\n"
+             // clang-format off
+             "    \"directory\": \"" << directory << "\",\n"
+             // clang-format on
+             "    \"arguments\": [";
+
+    bool first{true};
+
+    for (const auto &arg : command) {
+      if (first) {
+        first = false;
+      } else {
+        *this << ',';
+      }
+
+      *this << "\n"
+               // clang-format off
+               "      \"" << arg << '\"';
+      // clang-format on
+    }
+
+    *this << "\n"
+             "    ],\n"
+             // clang-format off
+             "    \"file\": \"" << file << "\"\n"
+             // clang-format on
+             "  }";
+  }
+}
+
+CompilationDatabase::~CompilationDatabase() { *this << "\n]\n"; }
 
 int main(int argc, char *argv[]) {
   const string progname{*argv++};
@@ -105,9 +176,9 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
-    ofstream out(output);
+    CompilationDatabase cdb(output);
 
-    if (!out) {
+    if (!cdb) {
       cerr << "cannot open '" << output << "'\n";
       return -1;
     }
@@ -151,12 +222,11 @@ int main(int argc, char *argv[]) {
               return -1;
             }
 
-            out << string(cwd, ret) << '\n';
-
             ifstream cmdline("/proc/" + to_string(pid) + "/cmdline");
+            vector<string> cmd;
 
             for (string arg; getline(cmdline, arg, '\0');) {
-              out << '\t' << arg.data() << '\n';
+              cmd.emplace_back(arg);
             }
 
             if (!cmdline.eof()) {
@@ -168,6 +238,8 @@ int main(int argc, char *argv[]) {
               perror("cannot ptrace(PTRACE_DETACH)");
               return -1;
             }
+
+            cdb.add(string(cwd, ret), cmd);
 
             continue;
           }
