@@ -20,6 +20,7 @@
 using std::cerr;
 using std::cout;
 using std::ifstream;
+using std::ofstream;
 using std::ostream;
 using std::string;
 using std::to_string;
@@ -33,6 +34,7 @@ int main(int argc, char *argv[]) {
   };
 
   bool verbose{false};
+  string output{"compile_commands.json"};
 
   while (*argv != nullptr) {
     if (*argv == "--"s) {
@@ -48,6 +50,13 @@ int main(int argc, char *argv[]) {
       verbose = true;
     } else if (*argv == "--no-verbose"s) {
       verbose = false;
+    } else if (*argv == "--output"s) {
+      if (*++argv == nullptr) {
+        cerr << "--output requires a value\n";
+        return -1;
+      }
+
+      output = *argv;
     } else {
       cerr << "unsupported option: " << *argv << '\n';
       usage(cerr);
@@ -95,6 +104,13 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
+    ofstream out(output);
+
+    if (!out) {
+      cerr << "cannot open '" << output << "'\n";
+      return -1;
+    }
+
     while (auto pid = wait(&wstatus)) {
       if (pid == -1) {
         perror("cannot wait()");
@@ -118,7 +134,7 @@ int main(int argc, char *argv[]) {
               return -1;
             }
 
-            cerr << string(exe, ret) << '\n';
+            out << string(exe, ret) << '\n';
 
             char cwd[PATH_MAX];
             ret = readlink(("/proc/" + to_string(pid) + "/cwd").c_str(), cwd,
@@ -129,12 +145,12 @@ int main(int argc, char *argv[]) {
               return -1;
             }
 
-            cerr << string(cwd, ret) << '\n';
+            out << string(cwd, ret) << '\n';
 
             ifstream cmdline("/proc/" + to_string(pid) + "/cmdline");
 
             for (string arg; getline(cmdline, arg, '\0');) {
-              cerr << '\t' << arg.data() << '\n';
+              out << '\t' << arg.data() << '\n';
             }
 
             if (!cmdline.eof()) {
