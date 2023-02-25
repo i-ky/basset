@@ -8,6 +8,7 @@
 #include <linux/ptrace.h>
 
 #undef PTRACE_CONT
+#undef PTRACE_DETACH
 #undef PTRACE_SETOPTIONS
 #undef PTRACE_TRACEME
 
@@ -134,7 +135,12 @@ int main(int argc, char *argv[]) {
               return -1;
             }
 
-            out << string(exe, ret) << '\n';
+            string executable(exe, ret);
+
+            if (executable.find("gcc") == string::npos &&
+                executable.find("g++") == string::npos) {
+              break;
+            }
 
             char cwd[PATH_MAX];
             ret = readlink(("/proc/" + to_string(pid) + "/cwd").c_str(), cwd,
@@ -158,7 +164,12 @@ int main(int argc, char *argv[]) {
               return -1;
             }
 
-            break;
+            if (ptrace(PTRACE_DETACH, pid, nullptr, nullptr) == -1) {
+              perror("cannot ptrace(PTRACE_DETACH)");
+              return -1;
+            }
+
+            continue;
           }
           case PTRACE_EVENT_CLONE:
           case PTRACE_EVENT_FORK:
