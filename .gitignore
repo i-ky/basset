@@ -31,4 +31,6 @@
 *.out
 *.app
 
+compile_commands.json
+
 basset
