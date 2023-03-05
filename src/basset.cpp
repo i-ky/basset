@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <regex.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -10,10 +11,8 @@
 
 #undef PTRACE_CONT
 #undef PTRACE_DETACH
-#undef PTRACE_SETOPTIONS
-#undef PTRACE_TRACEME
+#undef PTRACE_SEIZE
 
-#include <csignal>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -33,6 +32,79 @@ using std::string;
 using std::to_string;
 using std::vector;
 using std::literals::string_literals::operator""s;
+
+class Pipe {
+public:
+  Pipe();
+  Pipe(const Pipe &) = delete;
+  Pipe(Pipe &&) = delete;
+  Pipe &operator=(const Pipe &) = delete;
+  Pipe &operator=(Pipe &&) = delete;
+  ~Pipe();
+  template <typename T> Pipe &operator>>(T &dst);
+  template <typename T> Pipe &operator<<(const T &src);
+
+private:
+  void read(char *dst, size_t size);
+  void write(const char *src, size_t size);
+  int fds[2];
+};
+
+Pipe::Pipe() {
+  if (pipe2(fds, O_CLOEXEC) == -1) {
+    perror("cannot pipe2()");
+    throw;
+  }
+}
+
+Pipe::~Pipe() {
+  for (auto fd : fds) {
+    if (close(fd) == -1) {
+      perror("cannot close()");
+    }
+  }
+}
+
+template <typename T> Pipe &Pipe::operator>>(T &dst) {
+  read(&dst, sizeof(dst));
+  return *this;
+}
+
+template <typename T> Pipe &Pipe::operator<<(const T &src) {
+  write(&src, sizeof(src));
+  return *this;
+}
+
+void Pipe::read(char *dst, size_t size) {
+  while (size > 0) {
+    auto ret = ::read(fds[0], dst, size);
+
+    switch (ret) {
+    case -1:
+      perror("cannot read()");
+      throw;
+    case 0:
+      throw;
+    default:
+      dst += ret;
+      size -= ret;
+    }
+  }
+}
+
+void Pipe::write(const char *src, size_t size) {
+  while (size > 0) {
+    auto ret = ::write(fds[1], src, size);
+
+    if (ret == -1) {
+      perror("cannot write()");
+      throw;
+    }
+
+    src += ret;
+    size -= ret;
+  }
+}
 
 class Regex {
 public:
@@ -148,6 +220,8 @@ void CompilationDatabase::add(const string &directory,
 CompilationDatabase::~CompilationDatabase() { *this << "\n]\n"; }
 
 int main(int argc, char *argv[]) {
+  using token = char;
+
   const string progname{*argv++};
 
   auto usage = [progname](ostream &stream) {
@@ -195,35 +269,23 @@ int main(int argc, char *argv[]) {
 
   argv++;
 
+  Pipe pipe;
+
   if (auto pid = fork()) {
     if (pid == -1) {
       perror("cannot fork()");
       return -1;
     }
 
-    int wstatus;
-
-    if (wait(&wstatus) == -1) {
-      perror("cannot wait()");
-      return -1;
-    }
-
-    if (!WIFSTOPPED(wstatus) || WSTOPSIG(wstatus) != SIGSTOP) {
-      cerr << "unexpected state of child\n";
-      return -1;
-    }
-
-    if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
+    if (ptrace(PTRACE_SEIZE, pid, nullptr,
                PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
                    PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL) == -1) {
-      perror("cannot ptrace(PTRACE_SETOPTIONS)");
+      perror("cannot ptrace(PTRACE_SEIZE)");
       return -1;
     }
 
-    if (ptrace(PTRACE_CONT, pid, nullptr, nullptr) == -1) {
-      perror("cannot ptrace(PTRACE_CONT)");
-      return -1;
-    }
+    // signal to the child that everything is set up
+    pipe << token{};
 
     Regex compiler("g(cc|\\+\\+)");
 
@@ -233,6 +295,8 @@ int main(int argc, char *argv[]) {
       cerr << "cannot open '" << output << "'\n";
       return -1;
     }
+
+    int wstatus;
 
     while (auto pid = wait(&wstatus)) {
       if (pid == -1) {
@@ -296,6 +360,7 @@ int main(int argc, char *argv[]) {
           case PTRACE_EVENT_CLONE:
           case PTRACE_EVENT_FORK:
           case PTRACE_EVENT_VFORK:
+          case PTRACE_EVENT_STOP:
             break;
           default:
             cerr << "unknown stop event, signal: " << (wstatus >> 16) << '\n';
@@ -320,16 +385,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  if (ptrace(PTRACE_TRACEME, 0, nullptr, nullptr) == -1) {
-    perror("cannot ptrace(PTRACE_TRACEME)");
-    return -1;
-  }
+  token t;
 
-  // allow parent to ptrace(PTRACE_SETOPTIONS)
-  if (raise(SIGSTOP) != 0) {
-    perror("cannot raise(SIGSTOP)");
-    return -1;
-  }
+  // block until parent signals readiness
+  pipe >> t;
 
   execvp(*argv, argv);
   // on success, execve() does not return
