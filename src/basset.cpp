@@ -1,3 +1,4 @@
+#include <regex.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -15,6 +16,7 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -24,12 +26,59 @@ using std::cerr;
 using std::cout;
 using std::forward;
 using std::ifstream;
+using std::make_unique;
 using std::ofstream;
 using std::ostream;
 using std::string;
 using std::to_string;
 using std::vector;
 using std::literals::string_literals::operator""s;
+
+class Regex {
+public:
+  explicit Regex(const char *pattern);
+  Regex(const Regex &) = delete;
+  Regex(Regex &&) = delete;
+  Regex &operator=(const Regex &) = delete;
+  Regex &operator=(Regex &&) = delete;
+  ~Regex();
+  [[nodiscard]] bool match(const string &text) const;
+
+private:
+  [[noreturn]] void report(ssize_t errcode) const;
+  regex_t preg;
+};
+
+Regex::Regex(const char *pattern) {
+  auto errcode = regcomp(&preg, pattern, REG_EXTENDED | REG_NOSUB);
+
+  if (errcode != 0) {
+    report(errcode);
+  }
+}
+
+Regex::~Regex() { regfree(&preg); }
+
+bool Regex::match(const string &text) const {
+  auto errcode = regexec(&preg, text.c_str(), 0, nullptr, 0);
+
+  switch (errcode) {
+  case 0:
+    return true;
+  case REG_NOMATCH:
+    return false;
+  default:
+    report(errcode);
+  }
+}
+
+void Regex::report(ssize_t errcode) const {
+  auto size = regerror(errcode, &preg, nullptr, 0);
+  auto errbuf = make_unique<char>(size);
+  regerror(errcode, &preg, errbuf.get(), size);
+  cerr << errbuf.get() << '\n';
+  throw;
+}
 
 class CompilationDatabase : ofstream {
 public:
@@ -176,6 +225,8 @@ int main(int argc, char *argv[]) {
       return -1;
     }
 
+    Regex compiler("g(cc|\\+\\+)");
+
     CompilationDatabase cdb(output);
 
     if (!cdb) {
@@ -208,8 +259,7 @@ int main(int argc, char *argv[]) {
 
             string executable(exe, ret);
 
-            if (executable.find("gcc") == string::npos &&
-                executable.find("g++") == string::npos) {
+            if (!compiler.match(executable)) {
               break;
             }
 
