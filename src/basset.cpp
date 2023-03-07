@@ -23,7 +23,6 @@
 
 using std::cerr;
 using std::cout;
-using std::forward;
 using std::ifstream;
 using std::make_unique;
 using std::ofstream;
@@ -169,7 +168,7 @@ private:
 
 template <typename... Args>
 CompilationDatabase::CompilationDatabase(Args &&... args)
-    : ofstream(forward<Args>(args)...) {
+    : ofstream(std::forward<Args>(args)...) {
   *this << "[";
 }
 

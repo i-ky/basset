@@ -3,6 +3,7 @@ Checks: |-
   -*-avoid-c-arrays,
   -*-member-init,
   -*-vararg,
+  -altera-*,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-init-variables,
   -cppcoreguidelines-pro-type-union-access,
@@ -11,4 +12,11 @@ Checks: |-
   -fuchsia-overloaded-operator,
   -hicpp-no-array-decay,
   -hicpp-signed-bitwise,
-  -modernize-use-trailing-return-type
+  -llvmlibc-*,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length
+CheckOptions:
+- key: cppcoreguidelines-avoid-magic-numbers.IgnorePowersOf2IntegerValues
+  value: true
+- key: readability-magic-numbers.IgnorePowersOf2IntegerValues
+  value: true
