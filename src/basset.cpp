@@ -7,11 +7,6 @@
 #include <sys/wait.h>
 
 #include <linux/limits.h>
-#include <linux/ptrace.h>
-
-#undef PTRACE_CONT
-#undef PTRACE_DETACH
-#undef PTRACE_SEIZE
 
 #include <fstream>
 #include <iostream>
