@@ -308,7 +308,9 @@ int main(int argc, char *argv[]) {
       } else if (WIFSTOPPED(wstatus)) {
         verbose &&cerr << pid << " stopped\n";
 
-        if (WSTOPSIG(wstatus) == SIGTRAP) {
+        auto signal = WSTOPSIG(wstatus);
+
+        if (signal == SIGTRAP) {
           switch (wstatus >> 16) {
           case PTRACE_EVENT_EXEC: {
             char exe[PATH_MAX];
@@ -365,11 +367,13 @@ int main(int argc, char *argv[]) {
             cerr << "unknown stop event, signal: " << (wstatus >> 16) << '\n';
             return -1;
           }
+
+          signal = 0;
         } else {
-          verbose &&cerr << "got signal: " << WSTOPSIG(wstatus) << '\n';
+          verbose &&cerr << "got signal: " << signal << '\n';
         }
 
-        if (ptrace(PTRACE_CONT, pid, nullptr, nullptr) == -1) {
+        if (ptrace(PTRACE_CONT, pid, nullptr, signal) == -1) {
           perror("cannot ptrace(PTRACE_CONT)");
           return -1;
         }
