@@ -13,6 +13,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,7 @@ using std::ofstream;
 using std::ostream;
 using std::string;
 using std::to_string;
+using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
 
@@ -158,6 +160,7 @@ public:
   void add(const string &directory, const vector<string> &command);
 
 private:
+  [[nodiscard]] static bool is_source_file(const string &argument);
   bool first{true};
 };
 
@@ -177,7 +180,11 @@ void CompilationDatabase::add(const string &directory,
 
   vector<string> files;
 
-  files.emplace_back(command.back()); // FIXME
+  for (auto &&argument : command) {
+    if (is_source_file(argument)) {
+      files.emplace_back(argument);
+    }
+  }
 
   for (const auto &file : files) {
     *this << "\n"
@@ -212,6 +219,25 @@ void CompilationDatabase::add(const string &directory,
 }
 
 CompilationDatabase::~CompilationDatabase() { *this << "\n]\n"; }
+
+bool CompilationDatabase::is_source_file(const string &argument) {
+  // file extensions associated with C, C++, Objective-C, Objective-C++
+  // https://github.com/github/linguist/blob/master/lib/linguist/languages.yml
+  static const unordered_set<string> extensions{
+      "c"s,    "cats"s, "h"s,   "idc"s, "cpp"s, "c++"s, "cc"s,  "cp"s,
+      "cppm"s, "cxx"s,  "h++"s, "hh"s,  "hpp"s, "hxx"s, "inc"s, "inl"s,
+      "ino"s,  "ipp"s,  "ixx"s, "re"s,  "tcc"s, "tpp"s, "m"s,   "mm"s};
+
+  auto dot = argument.find_last_of('.');
+
+  if (dot == string::npos) {
+    return false;
+  }
+
+  auto extension = argument.substr(dot + 1);
+
+  return extensions.count(extension) != 0;
+}
 
 int main(int argc, char *argv[]) {
   using token = char;
