@@ -307,7 +307,8 @@ int main(int argc, char *argv[]) {
     // signal to the child that everything is set up
     pipe << token{};
 
-    Regex compiler("g(cc|\\+\\+)");
+    Regex compiler(
+        R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
 
     CompilationDatabase cdb(output);
 
