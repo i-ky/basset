@@ -31,7 +31,8 @@
 *.out
 *.app
 
+# clangd stuff
 compile_commands.json
-.clangd/
+.cache/
 
 basset
