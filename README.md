@@ -30,7 +30,7 @@ This project aims to improve on this idea:
 
 It has been developed and tested on Linux.
 Whether it works on other systems is an open question.
-Your feedback (both positive and negative) is hihgly appreciated!
+Your feedback (both positive and negative) is highly appreciated!
 
 ## prerequisites
 
