@@ -8,8 +8,10 @@
 
 #include <linux/limits.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -28,6 +30,14 @@ using std::to_string;
 using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
+
+std::string quote(const string &str) {
+  string s{str};
+  for (size_t pos = 0; (pos = s.find('"', pos)) != string::npos; pos += 2) {
+    s.insert(pos, 1, '\\');
+  }
+  return s;
+}
 
 class Pipe {
 public:
@@ -186,6 +196,25 @@ void CompilationDatabase::add(const string &directory,
     }
   }
 
+  if (files.empty()) {
+    *this << "\n"
+             "  {\n"
+             // clang-format off
+             "    \"directory\": \"" << directory << "\",\n"
+             // clang-format on
+             "    \"command\": \"";
+
+    std::copy(command.begin(), command.end(),
+              std::ostream_iterator<std::string>(*this, " "));
+
+    *this << "\",\n"
+             // clang-format off
+             "    \"file\": null\n"
+             // clang-format on
+             "  }";
+    return;
+  }
+
   for (const auto &file : files) {
     *this << "\n"
              "  {\n"
@@ -205,7 +234,7 @@ void CompilationDatabase::add(const string &directory,
 
       *this << "\n"
                // clang-format off
-               "      \"" << arg << '\"';
+               "      \"" << quote(arg) << '\"';
       // clang-format on
     }
 
