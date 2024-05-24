@@ -8,10 +8,8 @@
 
 #include <linux/limits.h>
 
-#include <algorithm>
 #include <fstream>
 #include <iostream>
-#include <iterator>
 #include <memory>
 #include <ostream>
 #include <string>
