@@ -31,12 +31,41 @@ using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
 
-std::string quote(const string &str) {
-  string s{str};
-  for (size_t pos = 0; (pos = s.find('"', pos)) != string::npos; pos += 2) {
-    s.insert(pos, 1, '\\');
-  }
-  return s;
+std::string json_escape(const std::string& str) {
+  static const char hex[] = "0123456789abcdef";
+  std::string s;
+
+  for (const auto c : str) {
+    if (c == '\\' || c == '"') {
+      s.push_back('\\');
+      s.push_back(c);
+      continue;
+    } else if (c < 0x20) {
+      switch (c) {
+      case '\b':
+        s.append("\\b");
+        break;
+      case '\t':
+        s.append("\\t");
+        break;
+      case '\n':
+        s.append("\\n");
+        break;
+      case '\f':
+        s.append("\\f");
+        break;
+      case '\r':
+        s.append("\\r");
+        break;
+      default:
+        s.append("\\u00");
+        s.push_back(hex[c >> 4]);
+        s.push_back(hex[c & 0xf]);
+      }
+    } else {
+      s.push_back(c);
+    }
+  }                                                                                                                                                                                                                                                                                                                       return s;
 }
 
 class Pipe {
@@ -177,17 +206,11 @@ private:
 template <typename... Args>
 CompilationDatabase::CompilationDatabase(Args &&... args)
     : ofstream(std::forward<Args>(args)...) {
-  *this << "[";
+  *this << '[';
 }
 
 void CompilationDatabase::add(const string &directory,
                               const vector<string> &command) {
-  if (first) {
-    first = false;
-  } else {
-    *this << ',';
-  }
-
   vector<string> files;
 
   for (auto &&argument : command) {
@@ -197,29 +220,24 @@ void CompilationDatabase::add(const string &directory,
   }
 
   if (files.empty()) {
-    *this << "\n"
-             "  {\n"
-             // clang-format off
-             "    \"directory\": \"" << directory << "\",\n"
-             // clang-format on
-             "    \"command\": \"";
-
-    std::copy(command.begin(), command.end(),
-              std::ostream_iterator<std::string>(*this, " "));
-
-    *this << "\",\n"
-             // clang-format off
-             "    \"file\": null\n"
-             // clang-format on
-             "  }";
+#ifndef DEBUG
     return;
+#else
+    files.push_back("*dummy*");
+#endif
+  }
+
+  if (first) {
+    first = false;
+  } else {
+    *this << ',';
   }
 
   for (const auto &file : files) {
     *this << "\n"
              "  {\n"
              // clang-format off
-             "    \"directory\": \"" << directory << "\",\n"
+             "    \"directory\": \"" << json_escape(directory) << "\",\n"
              // clang-format on
              "    \"arguments\": [";
 
@@ -234,14 +252,14 @@ void CompilationDatabase::add(const string &directory,
 
       *this << "\n"
                // clang-format off
-               "      \"" << quote(arg) << '\"';
-      // clang-format on
+               "      \"" << json_escape(arg) << '\"';
+               // clang-format on
     }
 
     *this << "\n"
              "    ],\n"
              // clang-format off
-             "    \"file\": \"" << file << "\"\n"
+             "    \"file\": \"" << json_escape(file) << "\"\n"
              // clang-format on
              "  }";
   }
