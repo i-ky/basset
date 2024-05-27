@@ -29,6 +29,46 @@ using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
 
+string json_escape(const string &str) {
+  static const char hex[] = "0123456789abcdef";
+  std::string s;
+
+  for (const auto c : str) {
+    if (c == '\\' || c == '"') {
+      s.push_back('\\');
+      s.push_back(c);
+      continue;
+    }
+    if (c < 0x20) {
+      switch (c) {
+      case '\b':
+        s.append("\\b");
+        break;
+      case '\t':
+        s.append("\\t");
+        break;
+      case '\n':
+        s.append("\\n");
+        break;
+      case '\f':
+        s.append("\\f");
+        break;
+      case '\r':
+        s.append("\\r");
+        break;
+      default:
+        s.append("\\u00");
+        s.push_back(hex[c >> 4]);
+        s.push_back(hex[c & 0xf]);
+      }
+    } else {
+      s.push_back(c);
+    }
+  }
+
+  return s;
+}
+
 class Pipe {
 public:
   Pipe();
@@ -190,7 +230,7 @@ void CompilationDatabase::add(const string &directory,
     *this << "\n"
              "  {\n"
              // clang-format off
-             "    \"directory\": \"" << directory << "\",\n"
+             "    \"directory\": \"" << json_escape(directory) << "\",\n"
              // clang-format on
              "    \"arguments\": [";
 
@@ -205,14 +245,14 @@ void CompilationDatabase::add(const string &directory,
 
       *this << "\n"
                // clang-format off
-               "      \"" << arg << '\"';
-      // clang-format on
+               "      \"" << json_escape(arg) << '\"';
+               // clang-format on
     }
 
     *this << "\n"
              "    ],\n"
              // clang-format off
-             "    \"file\": \"" << file << "\"\n"
+             "    \"file\": \"" << json_escape(file) << "\"\n"
              // clang-format on
              "  }";
   }
