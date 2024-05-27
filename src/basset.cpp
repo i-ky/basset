@@ -319,8 +319,14 @@ int main(int argc, char *argv[]) {
 
     int wstatus;
 
-    while (auto pid = wait(&wstatus)) {
+    while (true) {
+      const auto pid = wait(&wstatus);
+
       if (pid == -1) {
+        if (errno == ECHILD) {
+          break;
+        }
+
         perror("cannot wait()");
         return -1;
       }
