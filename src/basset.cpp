@@ -167,17 +167,11 @@ private:
 template <typename... Args>
 CompilationDatabase::CompilationDatabase(Args &&... args)
     : ofstream(std::forward<Args>(args)...) {
-  *this << "[";
+  *this << '[';
 }
 
 void CompilationDatabase::add(const string &directory,
                               const vector<string> &command) {
-  if (first) {
-    first = false;
-  } else {
-    *this << ',';
-  }
-
   vector<string> files;
 
   for (auto &&argument : command) {
@@ -187,6 +181,12 @@ void CompilationDatabase::add(const string &directory,
   }
 
   for (const auto &file : files) {
+    if (first) {
+      first = false;
+    } else {
+      *this << ',';
+    }
+
     *this << "\n"
              "  {\n"
              // clang-format off
@@ -194,11 +194,11 @@ void CompilationDatabase::add(const string &directory,
              // clang-format on
              "    \"arguments\": [";
 
-    bool first{true};
+    bool first_arg{true};
 
     for (const auto &arg : command) {
-      if (first) {
-        first = false;
+      if (first_arg) {
+        first_arg = false;
       } else {
         *this << ',';
       }
