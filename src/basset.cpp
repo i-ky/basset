@@ -290,139 +290,142 @@ int main(int argc, char *argv[]) {
   argv++;
 
   Pipe pipe;
+  auto main_pid = fork();
 
-  if (auto pid = fork()) {
+  if (main_pid == -1) {
+    perror("cannot fork()");
+    return -1;
+  } else if (main_pid == 0) {
+    // block until parent signals readiness
+    token t;
+    pipe >> t;
+
+    execvp(*argv, argv);
+
+    // on success, execve() does not return
+    perror("cannot execve()");
+    return -1;
+  }
+
+  if (ptrace(PTRACE_SEIZE, main_pid, nullptr,
+             PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
+                 PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL) == -1) {
+    perror("cannot ptrace(PTRACE_SEIZE)");
+    return -1;
+  }
+
+  // signal to the child that everything is set up
+  pipe << token{};
+
+  Regex compiler(
+      R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
+
+  CompilationDatabase cdb(output);
+
+  if (!cdb) {
+    cerr << "cannot open '" << output << "'\n";
+    return -1;
+  }
+
+  int wstatus;
+
+  while (true) {
+    const auto pid = wait(&wstatus);
+
     if (pid == -1) {
-      perror("cannot fork()");
-      return -1;
-    }
-
-    if (ptrace(PTRACE_SEIZE, pid, nullptr,
-               PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
-                   PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL) == -1) {
-      perror("cannot ptrace(PTRACE_SEIZE)");
-      return -1;
-    }
-
-    // signal to the child that everything is set up
-    pipe << token{};
-
-    Regex compiler(
-        R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
-
-    CompilationDatabase cdb(output);
-
-    if (!cdb) {
-      cerr << "cannot open '" << output << "'\n";
-      return -1;
-    }
-
-    int wstatus;
-
-    while (true) {
-      const auto pid = wait(&wstatus);
-
-      if (pid == -1) {
-        if (errno == ECHILD) {
-          break;
-        }
-
-        perror("cannot wait()");
-        return -1;
+      if (errno == ECHILD) {
+        break;
       }
 
-      if (WIFEXITED(wstatus) || WIFSIGNALED(wstatus)) {
-        verbose &&cerr << pid << " exited/terminated by signal\n";
-      } else if (WIFSTOPPED(wstatus)) {
-        verbose &&cerr << pid << " stopped\n";
+      perror("cannot wait()");
+      return -1;
+    }
 
-        auto signal = WSTOPSIG(wstatus);
+    if (WIFEXITED(wstatus) || WIFSIGNALED(wstatus)) {
+      verbose &&cerr << pid << " exited/terminated by signal\n";
 
-        if (signal == SIGTRAP) {
-          switch (wstatus >> 16) {
-          case PTRACE_EVENT_EXEC: {
-            char exe[PATH_MAX];
-            auto ret = readlink(("/proc/" + to_string(pid) + "/exe").c_str(),
-                                exe, sizeof(exe));
+      if (pid == main_pid) {
+        return WEXITSTATUS(wstatus);
+      }
+    } else if (WIFSTOPPED(wstatus)) {
+      verbose &&cerr << pid << " stopped\n";
 
-            if (ret == -1) {
-              perror("cannot readlink(\"/proc/[pid]/exe\")");
-              return -1;
-            }
+      auto signal = WSTOPSIG(wstatus);
 
-            string executable(exe, ret);
+      if (signal == SIGTRAP) {
+        switch (wstatus >> 16) {
+        case PTRACE_EVENT_EXEC: {
+          char exe[PATH_MAX];
+          auto ret = readlink(("/proc/" + to_string(pid) + "/exe").c_str(),
+                              exe, sizeof(exe));
 
-            if (!compiler.match(executable)) {
-              break;
-            }
-
-            char cwd[PATH_MAX];
-            ret = readlink(("/proc/" + to_string(pid) + "/cwd").c_str(), cwd,
-                           sizeof(cwd));
-
-            if (ret == -1) {
-              perror("cannot readlink(\"/proc/[pid]/cwd\")");
-              return -1;
-            }
-
-            ifstream cmdline("/proc/" + to_string(pid) + "/cmdline");
-            vector<string> cmd;
-
-            for (string arg; getline(cmdline, arg, '\0');) {
-              cmd.emplace_back(arg);
-            }
-
-            if (!cmdline.eof()) {
-              cerr << "failed to read /proc/[pid]/cmdline\n";
-              return -1;
-            }
-
-            if (ptrace(PTRACE_DETACH, pid, nullptr, nullptr) == -1) {
-              perror("cannot ptrace(PTRACE_DETACH)");
-              return -1;
-            }
-
-            cdb.add(string(cwd, ret), cmd);
-
-            continue;
-          }
-          case PTRACE_EVENT_CLONE:
-          case PTRACE_EVENT_FORK:
-          case PTRACE_EVENT_VFORK:
-          case PTRACE_EVENT_STOP:
-            break;
-          default:
-            cerr << "unknown stop event, signal: " << (wstatus >> 16) << '\n';
+          if (ret == -1) {
+            perror("cannot readlink(\"/proc/[pid]/exe\")");
             return -1;
           }
 
-          signal = 0;
-        } else {
-          verbose &&cerr << "got signal: " << signal << '\n';
-        }
+          string executable(exe, ret);
 
-        if (ptrace(PTRACE_CONT, pid, nullptr, signal) == -1) {
-          perror("cannot ptrace(PTRACE_CONT)");
+          if (!compiler.match(executable)) {
+            break;
+          }
+
+          char cwd[PATH_MAX];
+          ret = readlink(("/proc/" + to_string(pid) + "/cwd").c_str(), cwd,
+                         sizeof(cwd));
+
+          if (ret == -1) {
+            perror("cannot readlink(\"/proc/[pid]/cwd\")");
+            return -1;
+          }
+
+          ifstream cmdline("/proc/" + to_string(pid) + "/cmdline");
+          vector<string> cmd;
+
+          for (string arg; getline(cmdline, arg, '\0');) {
+            cmd.emplace_back(arg);
+          }
+
+          if (!cmdline.eof()) {
+            cerr << "failed to read /proc/[pid]/cmdline\n";
+            return -1;
+          }
+
+          if (ptrace(PTRACE_DETACH, pid, nullptr, nullptr) == -1) {
+            perror("cannot ptrace(PTRACE_DETACH)");
+            return -1;
+          }
+
+          cdb.add(string(cwd, ret), cmd);
+
+          continue;
+        }
+        case PTRACE_EVENT_CLONE:
+        case PTRACE_EVENT_FORK:
+        case PTRACE_EVENT_VFORK:
+        case PTRACE_EVENT_STOP:
+          break;
+        default:
+          cerr << "unknown stop event, signal: " << (wstatus >> 16) << '\n';
           return -1;
         }
-      } else if (WIFCONTINUED(wstatus)) {
-        verbose &&cerr << pid << " continued\n";
+
+        signal = 0;
       } else {
-        cerr << "unexpected wait status: " << wstatus << '\n';
+        verbose &&cerr << "got signal: " << signal << '\n';
+      }
+
+      if (ptrace(PTRACE_CONT, pid, nullptr, signal) == -1) {
+        perror("cannot ptrace(PTRACE_CONT)");
         return -1;
       }
+    } else if (WIFCONTINUED(wstatus)) {
+      verbose &&cerr << pid << " continued\n";
+    } else {
+      cerr << "unexpected wait status: " << wstatus << '\n';
+      return -1;
     }
-
-    return 0;
   }
 
-  token t;
-
-  // block until parent signals readiness
-  pipe >> t;
-
-  execvp(*argv, argv);
-  // on success, execve() does not return
-  perror("cannot execve()");
-  return -1;
+  return 0;
 }
