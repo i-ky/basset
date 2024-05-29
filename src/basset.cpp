@@ -246,7 +246,7 @@ void CompilationDatabase::add(const string &directory,
       *this << "\n"
                // clang-format off
                "      \"" << json_escape(arg) << '\"';
-               // clang-format on
+      // clang-format on
     }
 
     *this << "\n"
