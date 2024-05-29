@@ -31,39 +31,40 @@ using std::literals::string_literals::operator""s;
 
 string json_escape(const string &str) {
   static const char hex[] = "0123456789abcdef";
+  char u[] = "u0000";
   std::string s;
 
-  for (const auto c : str) {
-    if (c == '\\' || c == '"') {
+  for (auto c : str) {
+    if (static_cast<unsigned char>(c) < 0x20) {
       s.push_back('\\');
-      s.push_back(c);
-      continue;
-    }
-    if (c < 0x20) {
+
       switch (c) {
       case '\b':
-        s.append("\\b");
+        c = 'b';
         break;
       case '\t':
-        s.append("\\t");
+        c = 't';
         break;
       case '\n':
-        s.append("\\n");
+        c = 'n';
         break;
       case '\f':
-        s.append("\\f");
+        c = 'f';
         break;
       case '\r':
-        s.append("\\r");
+        c = 'r';
         break;
       default:
-        s.append("\\u00");
-        s.push_back(hex[c >> 4]);
-        s.push_back(hex[c & 0xf]);
+        u[3] = hex[c >> 4];
+        u[4] = hex[c & 0xf];
+        s.append(u);
+        continue;
       }
-    } else {
-      s.push_back(c);
+    } else if (c == '\\' || c == '"') {
+      s.push_back('\\');
     }
+
+    s.push_back(c);
   }
 
   return s;
