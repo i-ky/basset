@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <regex.h>
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -291,13 +292,13 @@ int main(int argc, char *argv[]) {
 
   Pipe pipe;
 
-  if (auto pid = fork()) {
-    if (pid == -1) {
+  if (auto main_pid = fork()) {
+    if (main_pid == -1) {
       perror("cannot fork()");
       return -1;
     }
 
-    if (ptrace(PTRACE_SEIZE, pid, nullptr,
+    if (ptrace(PTRACE_SEIZE, main_pid, nullptr,
                PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK |
                    PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL) == -1) {
       perror("cannot ptrace(PTRACE_SEIZE)");
@@ -327,6 +328,21 @@ int main(int argc, char *argv[]) {
 
       if (WIFEXITED(wstatus) || WIFSIGNALED(wstatus)) {
         verbose &&cerr << pid << " exited/terminated by signal\n";
+
+        if (pid == main_pid) {
+          if (WIFEXITED(wstatus)) {
+            return WEXITSTATUS(wstatus);
+          }
+
+          if (raise(WTERMSIG(wstatus)) != 0) {
+            perror("cannot raise()");
+            return -1;
+          }
+
+          // for some reason the signal terminated the child, but did not kill
+          // the parent...
+          return -1;
+        }
       } else if (WIFSTOPPED(wstatus)) {
         verbose &&cerr << pid << " stopped\n";
 
