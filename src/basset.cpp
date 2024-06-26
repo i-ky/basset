@@ -30,12 +30,10 @@ using std::vector;
 using std::literals::string_literals::operator""s;
 
 string json_escape(const string &str) {
-  static const char hex[] = "0123456789abcdef";
-  char u[] = "u0000";
   std::string s;
 
   for (auto c : str) {
-    if (static_cast<unsigned char>(c) < 0x20) {
+    if (c >= 0 && c < 0x20) {
       s.push_back('\\');
 
       switch (c) {
@@ -55,6 +53,8 @@ string json_escape(const string &str) {
         c = 'r';
         break;
       default:
+        static const char hex[] = "0123456789abcdef";
+        char u[] = "u0000";
         u[3] = hex[c >> 4];
         u[4] = hex[c & 0xf];
         s.append(u);
