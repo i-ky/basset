@@ -207,7 +207,7 @@ private:
 };
 
 template <typename... Args>
-CompilationDatabase::CompilationDatabase(Args &&... args)
+CompilationDatabase::CompilationDatabase(Args &&...args)
     : ofstream(std::forward<Args>(args)...) {
   *this << '[';
 }
