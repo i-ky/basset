@@ -1,3 +1,5 @@
+CXXFLAGS=--std=c++14
+
 OBJECTS:=$(patsubst %.cpp,%.o,$(wildcard src/*.cpp))
 
 basset: $(OBJECTS)
