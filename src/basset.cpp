@@ -1,7 +1,5 @@
 #include <fcntl.h>
 #include <regex.h>
-#include <signal.h>
-#include <stdio.h>
 #include <unistd.h>
 
 #include <sys/ptrace.h>
@@ -9,6 +7,8 @@
 
 #include <linux/limits.h>
 
+#include <csignal>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <memory>
