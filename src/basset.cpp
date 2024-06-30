@@ -10,22 +10,30 @@
 #include <csignal>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 using std::cerr;
 using std::cout;
+using std::function;
 using std::ifstream;
+using std::make_pair;
 using std::make_unique;
 using std::ofstream;
 using std::ostream;
+using std::pair;
 using std::string;
 using std::to_string;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
@@ -149,79 +157,106 @@ void Regex::report(int errcode) const {
   throw;
 }
 
-class CompilationDatabase : ofstream {
+class CompilationDatabase {
 public:
-  template <typename... Args> explicit CompilationDatabase(Args &&...);
+  using IsSourceFileFunc = function<bool(const string &)>;
+
+  CompilationDatabase(const string &filename, IsSourceFileFunc is_source_file);
+
   CompilationDatabase(const CompilationDatabase &) = delete;
   CompilationDatabase(CompilationDatabase &&) = delete;
   CompilationDatabase &operator=(const CompilationDatabase &) = delete;
   CompilationDatabase &operator=(CompilationDatabase &&) = delete;
-  ~CompilationDatabase() override;
-  using ofstream::operator!;
+  ~CompilationDatabase() = default;
+
+  bool load();
+  bool save();
+
   void add(const string &directory, const vector<string> &command);
 
 private:
-  [[nodiscard]] static bool is_source_file(const string &argument);
-  bool first{true};
+  const string filename;
+  const IsSourceFileFunc is_source_file;
+  nlohmann::json json;
+
+  static string make_index_key(const string &directory,
+                               const string &filename) {
+    return directory + '\0' + filename;
+  }
+
+  unordered_map<string, nlohmann::json::iterator> index;
 };
 
-template <typename... Args>
-CompilationDatabase::CompilationDatabase(Args &&... args)
-    : ofstream(std::forward<Args>(args)...) {
-  *this << '[';
+CompilationDatabase::CompilationDatabase(const string &filename,
+                                         IsSourceFileFunc is_source_file)
+    : filename(filename), is_source_file(std::move(is_source_file)),
+      json(nlohmann::json::array()) {}
+
+bool CompilationDatabase::load() {
+  ifstream ifs(filename);
+  if (!ifs) {
+    return true;
+  }
+
+  try {
+    json = nlohmann::json::parse(ifs);
+
+    // load existing database with removing entries for no longer existing
+    // sources
+    // (https://github.com/rizsotto/Bear/wiki/Features#append-to-existing-jspn-cdb)
+    for (auto it = json.begin(); it != json.end();) {
+      const auto directory = (*it)["directory"].get<string>();
+      const auto file = (*it)["file"].get<string>();
+      const auto path = directory + "/" + file;
+
+      if (access(path.c_str(), F_OK) == 0) {
+        index[make_index_key(directory, file)] = it++;
+      } else {
+        it = json.erase(it);
+      }
+    }
+  } catch (const nlohmann::json::parse_error &e) {
+    cerr << "json error: " << e.what() << '\n';
+    return false;
+  }
+
+  return true;
+}
+
+bool CompilationDatabase::save() {
+  ofstream ofs(filename);
+  if (!ofs) {
+    return false;
+  }
+
+  ofs << json.dump(4) << '\n';
+  return true;
 }
 
 void CompilationDatabase::add(const string &directory,
                               const vector<string> &command) {
-  vector<string> files;
-
   for (auto &&argument : command) {
-    if (is_source_file(argument)) {
-      files.emplace_back(argument);
+    if (!is_source_file(argument)) {
+      continue;
     }
-  }
 
-  for (const auto &file : files) {
-    if (first) {
-      first = false;
+    // append new entry for (directory, filename) or update it if it is already
+    // existing
+    const auto &it = index.find(make_index_key(directory, argument));
+    if (it != index.end()) {
+      (*it->second)["arguments"] = command;
     } else {
-      *this << ',';
+      nlohmann::json entry;
+      entry["directory"] = directory;
+      entry["file"] = argument;
+      entry["arguments"] = command;
+      index[make_index_key(directory, argument)] =
+          json.insert(json.cend(), entry);
     }
-
-    *this << "\n"
-             "  {\n"
-             // clang-format off
-             "    \"directory\": \"" << directory << "\",\n"
-             // clang-format on
-             "    \"arguments\": [";
-
-    bool first_arg{true};
-
-    for (const auto &arg : command) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        *this << ',';
-      }
-
-      *this << "\n"
-               // clang-format off
-               "      \"" << arg << '\"';
-      // clang-format on
-    }
-
-    *this << "\n"
-             "    ],\n"
-             // clang-format off
-             "    \"file\": \"" << file << "\"\n"
-             // clang-format on
-             "  }";
   }
 }
 
-CompilationDatabase::~CompilationDatabase() { *this << "\n]\n"; }
-
-bool CompilationDatabase::is_source_file(const string &argument) {
+bool is_source_file(const string &argument) {
   // file extensions associated with C, C++, Objective-C, Objective-C++
   // https://github.com/github/linguist/blob/master/lib/linguist/languages.yml
   static const unordered_set<string> extensions{
@@ -311,10 +346,9 @@ int main(int argc, char *argv[]) {
     Regex compiler(
         R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
 
-    CompilationDatabase cdb(output);
-
-    if (!cdb) {
-      cerr << "cannot open '" << output << "'\n";
+    CompilationDatabase cdb(output, is_source_file);
+    if (!cdb.load()) {
+      cerr << "cannot load '" << output << "'\n";
       return -1;
     }
 
@@ -330,6 +364,11 @@ int main(int argc, char *argv[]) {
         verbose &&cerr << pid << " exited/terminated by signal\n";
 
         if (pid == main_pid) {
+          if (!cdb.save()) {
+            cerr << "cannot save '" << output << "'\n";
+            return -1;
+          }
+
           if (WIFEXITED(wstatus)) {
             return WEXITSTATUS(wstatus);
           }
