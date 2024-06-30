@@ -114,7 +114,7 @@ public:
   [[nodiscard]] bool match(const string &text) const;
 
 private:
-  [[noreturn]] void report(ssize_t errcode) const;
+  [[noreturn]] void report(int errcode) const;
   regex_t preg;
 };
 
@@ -141,7 +141,7 @@ bool Regex::match(const string &text) const {
   }
 }
 
-void Regex::report(ssize_t errcode) const {
+void Regex::report(int errcode) const {
   auto size = regerror(errcode, &preg, nullptr, 0);
   auto errbuf = make_unique<char>(size);
   regerror(errcode, &preg, errbuf.get(), size);
