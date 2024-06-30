@@ -177,20 +177,18 @@ public:
 private:
   const string filename;
   const IsSourceFileFunc is_source_file;
-  nlohmann::json json;
 
   static string make_index_key(const string &directory,
                                const string &filename) {
     return directory + '\0' + filename;
   }
 
-  unordered_map<string, nlohmann::json::iterator> index;
+  unordered_map<string, vector<string>> index;
 };
 
 CompilationDatabase::CompilationDatabase(const string &filename,
                                          IsSourceFileFunc is_source_file)
-    : filename(filename), is_source_file(std::move(is_source_file)),
-      json(nlohmann::json::array()) {}
+    : filename(filename), is_source_file(std::move(is_source_file)) {}
 
 bool CompilationDatabase::load() {
   ifstream ifs(filename);
@@ -199,20 +197,18 @@ bool CompilationDatabase::load() {
   }
 
   try {
-    json = nlohmann::json::parse(ifs);
+    auto json = nlohmann::json::parse(ifs);
 
     // load existing database with removing entries for no longer existing
     // sources
     // (https://github.com/rizsotto/Bear/wiki/Features#append-to-existing-jspn-cdb)
-    for (auto it = json.begin(); it != json.end();) {
+    for (auto it = json.begin(); it != json.end(); ++it) {
       const auto directory = (*it)["directory"].get<string>();
       const auto file = (*it)["file"].get<string>();
       const auto path = directory + "/" + file;
 
       if (access(path.c_str(), F_OK) == 0) {
-        index[make_index_key(directory, file)] = it++;
-      } else {
-        it = json.erase(it);
+        index[make_index_key(directory, file)] = (*it)["arguments"];
       }
     }
   } catch (const nlohmann::json::parse_error &e) {
@@ -227,6 +223,14 @@ bool CompilationDatabase::save() {
   ofstream ofs(filename);
   if (!ofs) {
     return false;
+  }
+
+  auto json = nlohmann::json::array();
+  for (const auto &kv : index) {
+    const auto pos = kv.first.find('\0');
+    json += nlohmann::json::object({{"directory", kv.first.substr(0, pos)},
+                                    {"file", kv.first.substr(pos + 1)},
+                                    {"arguments", kv.second}});
   }
 
   ofs << json.dump(4) << '\n';
@@ -244,14 +248,9 @@ void CompilationDatabase::add(const string &directory,
     // existing
     const auto &it = index.find(make_index_key(directory, argument));
     if (it != index.end()) {
-      (*it->second)["arguments"] = command;
+      it->second = command;
     } else {
-      nlohmann::json entry;
-      entry["directory"] = directory;
-      entry["file"] = argument;
-      entry["arguments"] = command;
-      index[make_index_key(directory, argument)] =
-          json.insert(json.cend(), entry);
+      index[make_index_key(directory, argument)] = command;
     }
   }
 }
