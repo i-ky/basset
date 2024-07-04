@@ -1,5 +1,4 @@
 #include <fcntl.h>
-#include <regex.h>
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -13,6 +12,7 @@
 #include <iostream>
 #include <memory>
 #include <ostream>
+#include <regex>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -21,9 +21,9 @@
 using std::cerr;
 using std::cout;
 using std::ifstream;
-using std::make_unique;
 using std::ofstream;
 using std::ostream;
+using std::regex;
 using std::string;
 using std::to_string;
 using std::unordered_set;
@@ -101,52 +101,6 @@ void Pipe::write(const char *src, size_t size) {
     src += ret;
     size -= ret;
   }
-}
-
-class Regex {
-public:
-  explicit Regex(const char *pattern);
-  Regex(const Regex &) = delete;
-  Regex(Regex &&) = delete;
-  Regex &operator=(const Regex &) = delete;
-  Regex &operator=(Regex &&) = delete;
-  ~Regex();
-  [[nodiscard]] bool match(const string &text) const;
-
-private:
-  [[noreturn]] void report(ssize_t errcode) const;
-  regex_t preg;
-};
-
-Regex::Regex(const char *pattern) {
-  auto errcode = regcomp(&preg, pattern, REG_EXTENDED | REG_NOSUB);
-
-  if (errcode != 0) {
-    report(errcode);
-  }
-}
-
-Regex::~Regex() { regfree(&preg); }
-
-bool Regex::match(const string &text) const {
-  auto errcode = regexec(&preg, text.c_str(), 0, nullptr, 0);
-
-  switch (errcode) {
-  case 0:
-    return true;
-  case REG_NOMATCH:
-    return false;
-  default:
-    report(errcode);
-  }
-}
-
-void Regex::report(ssize_t errcode) const {
-  auto size = regerror(errcode, &preg, nullptr, 0);
-  auto errbuf = make_unique<char>(size);
-  regerror(errcode, &preg, errbuf.get(), size);
-  cerr << errbuf.get() << '\n';
-  throw;
 }
 
 class CompilationDatabase : ofstream {
@@ -308,8 +262,9 @@ int main(int argc, char *argv[]) {
     // signal to the child that everything is set up
     pipe << token{};
 
-    Regex compiler(
-        R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
+    regex compiler(
+        R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX",
+        regex::extended | regex::nosubs);
 
     CompilationDatabase cdb(output);
 
@@ -362,7 +317,7 @@ int main(int argc, char *argv[]) {
 
             string executable(exe, ret);
 
-            if (!compiler.match(executable)) {
+            if (!regex_search(executable, compiler)) {
               break;
             }
 
