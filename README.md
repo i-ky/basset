@@ -34,7 +34,7 @@ Your feedback (both positive and negative) is highly appreciated!
 
 ## prerequisites
 
-You will need `make`, C++ compiler supporting C++14 and [nlohmann/json] library.
+You will need `make`, C++ compiler supporting C++17 and [nlohmann/json] library.
 
 ## compile
 

@@ -1,4 +1,4 @@
-CXXFLAGS=--std=c++17
+CXXFLAGS=-std=c++17
 
 OBJECTS:=$(patsubst %.cpp,%.o,$(wildcard src/*.cpp))
 
