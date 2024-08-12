@@ -30,6 +30,47 @@ using std::unordered_set;
 using std::vector;
 using std::literals::string_literals::operator""s;
 
+string json_escape(const string &str) {
+  std::string s;
+
+  for (auto c : str) {
+    if (c >= 0 && c < 0x20) {
+      s.push_back('\\');
+
+      switch (c) {
+      case '\b':
+        c = 'b';
+        break;
+      case '\t':
+        c = 't';
+        break;
+      case '\n':
+        c = 'n';
+        break;
+      case '\f':
+        c = 'f';
+        break;
+      case '\r':
+        c = 'r';
+        break;
+      default:
+        static const char hex[] = "0123456789abcdef";
+        char u[] = "u0000";
+        u[3] = hex[c >> 4];
+        u[4] = hex[c & 0xf];
+        s.append(u);
+        continue;
+      }
+    } else if (c == '\\' || c == '"') {
+      s.push_back('\\');
+    }
+
+    s.push_back(c);
+  }
+
+  return s;
+}
+
 class Pipe {
 public:
   Pipe();
@@ -120,7 +161,7 @@ private:
 };
 
 template <typename... Args>
-CompilationDatabase::CompilationDatabase(Args &&... args)
+CompilationDatabase::CompilationDatabase(Args &&...args)
     : ofstream(std::forward<Args>(args)...) {
   *this << '[';
 }
@@ -145,7 +186,7 @@ void CompilationDatabase::add(const string &directory,
     *this << "\n"
              "  {\n"
              // clang-format off
-             "    \"directory\": \"" << directory << "\",\n"
+             "    \"directory\": \"" << json_escape(directory) << "\",\n"
              // clang-format on
              "    \"arguments\": [";
 
@@ -160,14 +201,14 @@ void CompilationDatabase::add(const string &directory,
 
       *this << "\n"
                // clang-format off
-               "      \"" << arg << '\"';
+               "      \"" << json_escape(arg) << '\"';
       // clang-format on
     }
 
     *this << "\n"
              "    ],\n"
              // clang-format off
-             "    \"file\": \"" << file << "\"\n"
+             "    \"file\": \"" << json_escape(file) << "\"\n"
              // clang-format on
              "  }";
   }
