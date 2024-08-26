@@ -34,7 +34,7 @@ Your feedback (both positive and negative) is highly appreciated!
 
 ## prerequisites
 
-You will need `make` and C++ compiler.
+You will need `make`, C++ compiler supporting C++17 and [nlohmann/json] library.
 
 ## compile
 
@@ -61,6 +61,7 @@ Extra options can precede `--` if needed.
 [clang]: https://clang.llvm.org
 [compile-db-gen]: https://github.com/sunlin7/compile-db-gen
 [compiledb]: https://github.com/nickdiego/compiledb
+[nlohmann/json]: https://github.com/nlohmann/json
 [procfs]: https://en.wikipedia.org/wiki/Procfs
 [ptrace]: https://en.wikipedia.org/wiki/Ptrace
 [strace]: https://strace.io

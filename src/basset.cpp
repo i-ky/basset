@@ -1,7 +1,5 @@
 #include <fcntl.h>
 #include <regex.h>
-#include <signal.h>
-#include <stdio.h>
 #include <unistd.h>
 
 #include <sys/ptrace.h>
@@ -9,67 +7,36 @@
 
 #include <linux/limits.h>
 
+#include <csignal>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 using std::cerr;
 using std::cout;
+using std::function;
 using std::ifstream;
 using std::make_unique;
 using std::ofstream;
 using std::ostream;
 using std::string;
 using std::to_string;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
+using std::filesystem::canonical;
+using std::filesystem::path;
 using std::literals::string_literals::operator""s;
-
-string json_escape(const string &str) {
-  std::string s;
-
-  for (auto c : str) {
-    if (c >= 0 && c < 0x20) {
-      s.push_back('\\');
-
-      switch (c) {
-      case '\b':
-        c = 'b';
-        break;
-      case '\t':
-        c = 't';
-        break;
-      case '\n':
-        c = 'n';
-        break;
-      case '\f':
-        c = 'f';
-        break;
-      case '\r':
-        c = 'r';
-        break;
-      default:
-        static const char hex[] = "0123456789abcdef";
-        char u[] = "u0000";
-        u[3] = hex[c >> 4];
-        u[4] = hex[c & 0xf];
-        s.append(u);
-        continue;
-      }
-    } else if (c == '\\' || c == '"') {
-      s.push_back('\\');
-    }
-
-    s.push_back(c);
-  }
-
-  return s;
-}
 
 class Pipe {
 public:
@@ -190,79 +157,109 @@ void Regex::report(int errcode) const {
   throw;
 }
 
-class CompilationDatabase : ofstream {
+class CompilationDatabase {
 public:
-  template <typename... Args> explicit CompilationDatabase(Args &&...);
+  using IsSourceFileFunc = function<bool(const string &)>;
+
+  CompilationDatabase(string filename, IsSourceFileFunc is_source_file);
+
   CompilationDatabase(const CompilationDatabase &) = delete;
   CompilationDatabase(CompilationDatabase &&) = delete;
   CompilationDatabase &operator=(const CompilationDatabase &) = delete;
   CompilationDatabase &operator=(CompilationDatabase &&) = delete;
-  ~CompilationDatabase() override;
-  using ofstream::operator!;
+  ~CompilationDatabase() = default;
+
+  bool load();
+  bool save();
+
   void add(const string &directory, const vector<string> &command);
 
 private:
-  [[nodiscard]] static bool is_source_file(const string &argument);
-  bool first{true};
+  const string filename;
+  const IsSourceFileFunc is_source_file;
+
+  static path make_index_key(const string &directory,
+                               const string &filename) {
+    return canonical(path(directory) / filename);
+  }
+
+  // compilatiopn database entry
+  struct Entry {
+    string directory;
+    string file;
+    vector<string> arguments;
+  };
+
+  // maps canonized source file path to entry
+  unordered_map<path, Entry> index;
 };
 
-template <typename... Args>
-CompilationDatabase::CompilationDatabase(Args &&...args)
-    : ofstream(std::forward<Args>(args)...) {
-  *this << '[';
+CompilationDatabase::CompilationDatabase(string filename,
+                                         IsSourceFileFunc is_source_file)
+    : filename(std::move(filename)), is_source_file(std::move(is_source_file)) {
+}
+
+bool CompilationDatabase::load() {
+  ifstream ifs(filename);
+  if (!ifs) {
+    return true;
+  }
+
+  try {
+    auto json = nlohmann::json::parse(ifs);
+
+    // load existing database with removing entries for no longer existing
+    // sources
+    // (https://github.com/rizsotto/Bear/wiki/Features#append-to-existing-jspn-cdb)
+    for (auto&& entry : json) {
+      const auto directory = entry["directory"].get<string>();
+      const auto file = entry["file"].get<string>();
+
+      if (exists(path(directory) / file)) {
+        index[make_index_key(directory, file)] =
+            {directory, file, entry["arguments"]};
+      }
+    }
+  } catch (const nlohmann::json::parse_error &e) {
+    cerr << "json error: " << e.what() << '\n';
+    return false;
+  }
+
+  return true;
+}
+
+bool CompilationDatabase::save() {
+  ofstream ofs(filename);
+  if (!ofs) {
+    return false;
+  }
+
+  auto json = nlohmann::json::array();
+  for (const auto &kv : index) {
+    json += nlohmann::json::object({{"directory", kv.second.directory},
+                                    {"file", kv.second.file},
+                                    {"arguments", kv.second.arguments}});
+  }
+
+  ofs << json.dump(4) << '\n';
+  return true;
 }
 
 void CompilationDatabase::add(const string &directory,
                               const vector<string> &command) {
-  vector<string> files;
-
   for (auto &&argument : command) {
-    if (is_source_file(argument)) {
-      files.emplace_back(argument);
-    }
-  }
-
-  for (const auto &file : files) {
-    if (first) {
-      first = false;
-    } else {
-      *this << ',';
+    if (!is_source_file(argument)) {
+      continue;
     }
 
-    *this << "\n"
-             "  {\n"
-             // clang-format off
-             "    \"directory\": \"" << json_escape(directory) << "\",\n"
-             // clang-format on
-             "    \"arguments\": [";
-
-    bool first_arg{true};
-
-    for (const auto &arg : command) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        *this << ',';
-      }
-
-      *this << "\n"
-               // clang-format off
-               "      \"" << json_escape(arg) << '\"';
-      // clang-format on
-    }
-
-    *this << "\n"
-             "    ],\n"
-             // clang-format off
-             "    \"file\": \"" << json_escape(file) << "\"\n"
-             // clang-format on
-             "  }";
+    // append new entry or update already existing one
+    index.insert_or_assign(
+        make_index_key(directory, argument),
+        Entry{directory, argument, command});
   }
 }
 
-CompilationDatabase::~CompilationDatabase() { *this << "\n]\n"; }
-
-bool CompilationDatabase::is_source_file(const string &argument) {
+bool is_source_file(const string &argument) {
   // file extensions associated with C, C++, Objective-C, Objective-C++
   // https://github.com/github/linguist/blob/master/lib/linguist/languages.yml
   static const unordered_set<string> extensions{
@@ -352,10 +349,9 @@ int main(int argc, char *argv[]) {
     Regex compiler(
         R"REGEX(([^-]+-)*(c(c|\+\+)|(g(cc|\+\+)|clang(\+\+)?)(-[0-9]+(\.[0-9]+){0,2})?)$)REGEX");
 
-    CompilationDatabase cdb(output);
-
-    if (!cdb) {
-      cerr << "cannot open '" << output << "'\n";
+    CompilationDatabase cdb(output, is_source_file);
+    if (!cdb.load()) {
+      cerr << "cannot load '" << output << "'\n";
       return -1;
     }
 
@@ -371,6 +367,11 @@ int main(int argc, char *argv[]) {
         verbose &&cerr << pid << " exited/terminated by signal\n";
 
         if (pid == main_pid) {
+          if (!cdb.save()) {
+            cerr << "cannot save '" << output << "'\n";
+            return -1;
+          }
+
           if (WIFEXITED(wstatus)) {
             return WEXITSTATUS(wstatus);
           }

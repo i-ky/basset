@@ -1,9 +1,12 @@
-OBJECTS:=$(patsubst %.cpp,%.o,$(wildcard src/*.cpp))
+CXXFLAGS := -std=c++17 $(CXXFLAGS) $(pkg-config --cflags nlohmann_json)
+OBJECTS  := $(patsubst %.cpp,%.o,$(wildcard src/*.cpp))
 
-basset: $(OBJECTS)
-	$(CXX) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
+.PHONY: all clean
 
 all: basset
 
 clean:
-	rm -rf $(OBJECTS) basset
+	$(RM) $(OBJECTS) basset
+
+basset: $(OBJECTS)
+	$(CXX) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
